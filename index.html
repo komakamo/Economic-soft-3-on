@@ -1,11 +1,698 @@
-<!DOCTYPE html>
-<html lang="ja">
-<head>
-  <meta charset="UTF-8">
-  <title>Economic soft 2 on</title>
-</head>
-<body>
-  <h1>Economic soft 2 on</h1>
-  <p>ここに経済学ソフト（通貨危機シミュレーションとか）を追加していく予定のページです。</p>
-</body>
-</html>
+import React, { useState, useEffect, useRef } from 'react';
+import { Play, Pause, RefreshCw, TrendingUp, TrendingDown, AlertTriangle, DollarSign, Activity, ShieldAlert, BookOpen, BarChart3, Settings, RotateCcw } from 'lucide-react';
+
+/**
+ * Currency Crisis Lab
+ * A comprehensive educational sandbox for understanding balance of payments crises.
+ */
+
+const CurrencyCrisisLab = () => {
+  // --- Game State ---
+  const [mode, setMode] = useState('menu'); // menu, sandbox, history, story
+  const [isPlaying, setIsPlaying] = useState(false);
+  const [time, setTime] = useState(0);
+  const [gameOver, setGameOver] = useState(false);
+  const [crisisType, setCrisisType] = useState(null); // 'reserves', 'debt', 'hyperinflation'
+  const [messages, setMessages] = useState([]);
+  
+  // --- Economic State ---
+  // Rate: Local Currency per USD (Higher = Weaker Local Currency)
+  // Initial Rate is usually 100.
+  const [economy, setEconomy] = useState({
+    exchangeRate: 100,
+    targetRate: 100, // For peg
+    reserves: 500, // Billion USD
+    foreignDebtUSD: 200, // Billion USD (Principal)
+    localDebt: 100,
+    interestRate: 5.0, // %
+    globalInterestRate: 4.0, // %
+    investorConfidence: 80, // 0-100
+    regime: 'peg', // 'peg', 'managed', 'float'
+    capitalControls: false,
+    gdpGrowth: 2.0,
+  });
+
+  // --- History for Graph ---
+  const [history, setHistory] = useState([]);
+
+  // --- Story Mode Specifics ---
+  const [storyStep, setStoryStep] = useState(0);
+  const [storyScenario, setStoryScenario] = useState(null);
+
+  // --- Constants & Config ---
+  const MAX_HISTORY = 60;
+  const TICK_RATE = 800; // ms per tick
+
+  // --- Simulation Engine ---
+  useEffect(() => {
+    let interval = null;
+
+    if (isPlaying && !gameOver) {
+      interval = setInterval(() => {
+        tickEconomy();
+      }, TICK_RATE);
+    }
+
+    return () => clearInterval(interval);
+  }, [isPlaying, gameOver, economy, time]);
+
+  const addMessage = (text, type = 'info') => {
+    setMessages(prev => [{ text, type, id: Date.now() }, ...prev].slice(0, 5));
+  };
+
+  const tickEconomy = () => {
+    let newEco = { ...economy };
+    let crisisOccurred = false;
+    let currentCrisisType = null;
+
+    // 1. Capital Flow Logic
+    // Money flows to higher interest rates, adjusted by risk (confidence)
+    const rateDifferential = newEco.interestRate - newEco.globalInterestRate;
+    const riskPremium = (100 - newEco.investorConfidence) / 5; // Higher risk needs higher return
+    
+    // Net Pressure on Currency (> 0 means Buy Local, < 0 means Sell Local/Buy USD)
+    // Capital Controls dampen the flow
+    const controlFactor = newEco.capitalControls ? 0.3 : 1.0;
+    let currencyPressure = (rateDifferential - riskPremium) * 10 * controlFactor;
+
+    // Speculative Attack Logic: If reserves low + peg, massive sell pressure
+    if (newEco.regime === 'peg' && newEco.reserves < newEco.foreignDebtUSD * 0.5 && newEco.investorConfidence < 40) {
+      currencyPressure -= 50; // Massive outflow
+      if (Math.random() > 0.7) addMessage("投機筋が売りを仕掛けています！", "danger");
+    }
+
+    // 2. Regime Handling
+    if (newEco.regime === 'peg') {
+      // Fixed Exchange Rate Logic
+      if (currencyPressure < 0) {
+        // Pressure to depreciate -> Central Bank sells reserves to buy local currency
+        const reservesCost = Math.abs(currencyPressure) * 2; // Multiplier
+        newEco.reserves -= reservesCost;
+        
+        if (newEco.reserves <= 0) {
+          // BROKEN PEG
+          newEco.reserves = 0;
+          newEco.regime = 'float';
+          newEco.exchangeRate = newEco.exchangeRate * 1.5; // Massive devaluation
+          newEco.investorConfidence -= 30;
+          addMessage("外貨準備が尽きました！固定相場崩壊！", "critical");
+          currentCrisisType = 'reserves';
+          crisisOccurred = true;
+        }
+      } else {
+        // Pressure to appreciate -> Accumulate reserves
+        newEco.reserves += currencyPressure * 0.5;
+      }
+      // Rate stays (mostly) fixed unless broken
+      // Tiny fluctuation to show market noise
+      newEco.exchangeRate = newEco.targetRate + (Math.random() * 0.4 - 0.2);
+
+    } else {
+      // Float Logic
+      // Negative pressure = Deprecation (Rate goes UP)
+      // Positive pressure = Appreciation (Rate goes DOWN)
+      const change = -currencyPressure * 0.5;
+      newEco.exchangeRate += change;
+      
+      // Volatility check
+      if (Math.abs(change) > 5) {
+        newEco.investorConfidence -= 2;
+      }
+    }
+
+    // 3. Debt Burden Calculation
+    // Foreign debt value in local currency
+    const debtBurdenRatio = (newEco.foreignDebtUSD * (newEco.exchangeRate / 100)) / 500; // Normalized roughly to GDP
+    
+    if (debtBurdenRatio > 2.5) {
+       newEco.investorConfidence -= 5;
+       if (debtBurdenRatio > 3.5 && !crisisOccurred) {
+         addMessage("外貨建て債務の返済が不能になりました！", "critical");
+         currentCrisisType = 'debt';
+         crisisOccurred = true;
+       }
+    }
+
+    // 4. Confidence decay/growth
+    if (newEco.gdpGrowth > 0) newEco.investorConfidence += 0.5;
+    newEco.investorConfidence = Math.max(0, Math.min(100, newEco.investorConfidence));
+
+    // 5. Update History
+    const snapshot = {
+      time: time + 1,
+      rate: newEco.exchangeRate,
+      reserves: newEco.reserves,
+      confidence: newEco.investorConfidence
+    };
+    setHistory(prev => [...prev, snapshot].slice(-MAX_HISTORY));
+    setTime(t => t + 1);
+    setEconomy(newEco);
+
+    if (crisisOccurred) {
+      setGameOver(true);
+      setCrisisType(currentCrisisType);
+      setIsPlaying(false);
+    }
+  };
+
+  // --- Actions ---
+
+  const injectShock = (type) => {
+    let newEco = { ...economy };
+    let msg = "";
+    
+    switch(type) {
+      case 'global_hike':
+        newEco.globalInterestRate += 2.0;
+        msg = "米国が利上げを発表！世界的な資金引き上げが発生。";
+        break;
+      case 'panic':
+        newEco.investorConfidence -= 20;
+        msg = "新興国市場で投資家心理が急激に悪化！";
+        break;
+      case 'oil':
+        // Affects trade balance (simplified as direct reserves hit for importers)
+        newEco.reserves -= 50;
+        msg = "原油価格高騰！輸入コスト増で外貨が流出。";
+        break;
+      default:
+        break;
+    }
+    setEconomy(newEco);
+    addMessage(msg, 'warning');
+  };
+
+  const toggleRegime = () => {
+    setEconomy(prev => ({
+      ...prev,
+      regime: prev.regime === 'peg' ? 'float' : 'peg',
+      targetRate: prev.exchangeRate // Reset target if switching back to peg
+    }));
+    addMessage(`為替制度を${economy.regime === 'peg' ? '変動相場' : '固定相場'}に変更しました。`);
+  };
+
+  const resetGame = (preset = 'sandbox') => {
+    setGameOver(false);
+    setIsPlaying(false);
+    setTime(0);
+    setHistory([]);
+    setMessages([]);
+    setCrisisType(null);
+    setStoryStep(0);
+
+    const baseEconomy = {
+      exchangeRate: 100,
+      targetRate: 100,
+      localDebt: 100,
+      interestRate: 5.0,
+      globalInterestRate: 4.0,
+      capitalControls: false,
+      gdpGrowth: 2.0,
+    };
+
+    if (preset === 'sandbox') {
+      setEconomy({
+        ...baseEconomy,
+        reserves: 600,
+        foreignDebtUSD: 200,
+        investorConfidence: 80,
+        regime: 'float',
+      });
+      setMode('sandbox');
+    } else if (preset === 'asian') {
+      setEconomy({
+        ...baseEconomy,
+        reserves: 400,
+        foreignDebtUSD: 600, // High short-term debt
+        investorConfidence: 90, // High initially
+        regime: 'peg', // The trap
+      });
+      setMode('historical');
+      addMessage("【シナリオ】アジア通貨危機モデル: 高い外貨建て債務と固定相場の組み合わせです。", "info");
+    } else if (preset === 'latin') {
+      setEconomy({
+        ...baseEconomy,
+        reserves: 300,
+        foreignDebtUSD: 800, // Massive debt
+        investorConfidence: 60, 
+        regime: 'float', // Managed float usually, but simplified
+      });
+      setMode('historical');
+      addMessage("【シナリオ】ラテンアメリカ危機モデル: 慢性的な外貨不足と巨額の借金。", "info");
+    } else if (preset === 'story') {
+      setEconomy({
+        ...baseEconomy,
+        reserves: 300,
+        foreignDebtUSD: 400,
+        investorConfidence: 70,
+        regime: 'peg',
+      });
+      setMode('story');
+      setStoryScenario('mission1');
+      setIsPlaying(true); // Start immediately for story logic tick
+    }
+  };
+
+  // --- Story Mode Logic ---
+  // Checking win/loss conditions for story periodically
+  useEffect(() => {
+    if (mode === 'story' && isPlaying && !gameOver) {
+      if (time === 10) {
+        setIsPlaying(false); // Pause for decision
+        setStoryStep(1);
+      }
+      if (time === 30) {
+        setIsPlaying(false);
+        setStoryStep(2);
+      }
+      if (time >= 50) {
+        setGameOver(true);
+        setCrisisType('win');
+      }
+    }
+  }, [time, mode, isPlaying]);
+
+
+  // --- Visual Components ---
+
+  const WaterTank = ({ level, capacity, label }) => {
+    const percentage = Math.min(100, Math.max(0, (level / capacity) * 100));
+    return (
+      <div className="relative w-24 h-32 bg-gray-200 rounded-lg border-2 border-gray-400 overflow-hidden shadow-inner mx-auto">
+        <div 
+          className={`absolute bottom-0 left-0 w-full transition-all duration-700 ease-in-out ${level < 100 ? 'bg-red-500' : 'bg-blue-500'}`}
+          style={{ height: `${percentage}%`, opacity: 0.8 }}
+        >
+          {/* Water shimmer effect simulation */}
+          <div className="w-full h-2 bg-white opacity-20 animate-pulse"></div>
+        </div>
+        <div className="absolute bottom-2 w-full text-center font-bold text-xs text-gray-800 drop-shadow-md z-10">
+          {label}<br/>{Math.floor(level)}億$
+        </div>
+        {/* Scale marks */}
+        <div className="absolute right-0 top-0 h-full w-2 flex flex-col justify-between py-2">
+           {[...Array(5)].map((_,i) => <div key={i} className="h-[1px] w-full bg-gray-400"></div>)}
+        </div>
+      </div>
+    );
+  };
+
+  const DebtTower = ({ usdDebt, rate }) => {
+    // Calculate debt in Local Currency terms
+    const localValue = usdDebt * (rate / 100);
+    const baseHeight = 30; // Base height pixels
+    const height = Math.min(120, baseHeight + (localValue / 10)); 
+    
+    return (
+      <div className="flex flex-col items-center justify-end h-32 w-24 mx-auto">
+        <div 
+          className={`w-16 transition-all duration-500 border-2 border-gray-700 flex flex-col-reverse overflow-hidden shadow-lg ${localValue > 800 ? 'bg-red-600 animate-bounce' : 'bg-amber-600'}`}
+          style={{ height: `${height}px` }}
+        >
+            <div className="w-full text-center text-white text-xs font-bold p-1">
+              借金<br/>
+              {(localValue).toFixed(0)}
+            </div>
+        </div>
+        <div className="text-xs text-center mt-1 font-medium">
+          外貨借金(現地通貨換算)
+        </div>
+      </div>
+    );
+  };
+
+  const Chart = ({ data }) => {
+    if (data.length < 2) return <div className="h-40 flex items-center justify-center bg-gray-50 text-gray-400">データ収集中...</div>;
+    
+    const maxRate = Math.max(...data.map(d => d.rate), 150);
+    const minRate = Math.min(...data.map(d => d.rate), 50);
+    const range = maxRate - minRate || 100;
+
+    const points = data.map((d, i) => {
+      const x = (i / (MAX_HISTORY - 1)) * 100;
+      const y = 100 - ((d.rate - minRate) / range) * 100;
+      return `${x},${y}`;
+    }).join(' ');
+
+    return (
+      <div className="h-40 w-full bg-white border rounded shadow-inner relative overflow-hidden">
+        <svg className="w-full h-full p-2" viewBox="0 0 100 100" preserveAspectRatio="none">
+          {/* Target Rate Line for Peg */}
+          {economy.regime === 'peg' && (
+             <line x1="0" y1={100 - ((economy.targetRate - minRate) / range) * 100} x2="100" y2={100 - ((economy.targetRate - minRate) / range) * 100} stroke="#10B981" strokeWidth="1" strokeDasharray="4" opacity="0.5" />
+          )}
+          <polyline
+            fill="none"
+            stroke={economy.exchangeRate > 140 ? '#EF4444' : '#3B82F6'}
+            strokeWidth="2"
+            points={points}
+            vectorEffect="non-scaling-stroke"
+          />
+        </svg>
+        <div className="absolute top-1 left-2 text-xs text-gray-500">為替レート (高い=通貨安)</div>
+        <div className="absolute bottom-1 right-2 text-sm font-bold">{economy.exchangeRate.toFixed(1)}</div>
+      </div>
+    );
+  };
+
+  // --- Views ---
+
+  if (mode === 'menu') {
+    return (
+      <div className="w-full max-w-4xl mx-auto bg-slate-50 h-screen p-8 flex flex-col items-center justify-center text-slate-800 font-sans">
+        <div className="bg-white p-8 rounded-2xl shadow-xl max-w-2xl w-full text-center border border-slate-200">
+          <div className="mb-6 flex justify-center">
+            <div className="bg-blue-100 p-4 rounded-full">
+              <Activity size={64} className="text-blue-600" />
+            </div>
+          </div>
+          <h1 className="text-4xl font-bold mb-2 text-slate-800">Currency Crisis Lab</h1>
+          <p className="text-slate-500 mb-8">通貨危機サンドボックス：国の運命を決めるのは、金利か、借金か、それとも「信頼」か？</p>
+          
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <button onClick={() => resetGame('asian')} className="p-4 border-2 border-blue-100 hover:border-blue-500 hover:bg-blue-50 rounded-xl transition-all group">
+              <RotateCcw className="mx-auto mb-2 text-blue-500 group-hover:scale-110 transition-transform" />
+              <h3 className="font-bold text-lg">歴史再現</h3>
+              <p className="text-xs text-slate-500 mt-1">アジア通貨危機など、固定相場の崩壊を体験する。</p>
+            </button>
+            <button onClick={() => resetGame('sandbox')} className="p-4 border-2 border-purple-100 hover:border-purple-500 hover:bg-purple-50 rounded-xl transition-all group">
+              <Settings className="mx-auto mb-2 text-purple-500 group-hover:scale-110 transition-transform" />
+              <h3 className="font-bold text-lg">実験室</h3>
+              <p className="text-xs text-slate-500 mt-1">自由に国を設計し、ショックを与えて耐久力を試す。</p>
+            </button>
+            <button onClick={() => resetGame('story')} className="p-4 border-2 border-emerald-100 hover:border-emerald-500 hover:bg-emerald-50 rounded-xl transition-all group">
+              <BookOpen className="mx-auto mb-2 text-emerald-500 group-hover:scale-110 transition-transform" />
+              <h3 className="font-bold text-lg">ストーリー</h3>
+              <p className="text-xs text-slate-500 mt-1">中央銀行総裁として、任期中の危機回避を目指すRPG。</p>
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className={`w-full max-w-4xl mx-auto min-h-screen p-4 font-sans transition-colors duration-1000 ${gameOver && crisisType !== 'win' ? 'bg-red-900' : 'bg-slate-100'}`}>
+      
+      {/* --- Header --- */}
+      <header className="bg-white rounded-xl shadow-sm p-4 mb-4 flex justify-between items-center border border-slate-200">
+        <div>
+          <h2 className="text-xl font-bold flex items-center gap-2">
+            <button onClick={() => setMode('menu')} className="text-gray-400 hover:text-gray-800"><RotateCcw size={18}/></button>
+            {mode === 'historical' ? '歴史リプレイモード' : mode === 'story' ? 'ストーリーモード' : '実験室モード'}
+          </h2>
+          <div className="text-xs text-gray-500 flex gap-4 mt-1">
+            <span>経過時間: {time}週</span>
+            <span>世界金利: {economy.globalInterestRate.toFixed(1)}%</span>
+          </div>
+        </div>
+        
+        <div className="flex gap-2">
+           {!gameOver && mode !== 'story' && (
+             <button 
+               onClick={() => setIsPlaying(!isPlaying)}
+               className={`flex items-center gap-1 px-4 py-2 rounded-lg font-bold text-white transition-colors ${isPlaying ? 'bg-yellow-500 hover:bg-yellow-600' : 'bg-green-500 hover:bg-green-600'}`}
+             >
+               {isPlaying ? <><Pause size={16}/> 一時停止</> : <><Play size={16}/> 再開</>}
+             </button>
+           )}
+           <button onClick={() => resetGame(mode === 'historical' ? 'asian' : mode === 'story' ? 'story' : 'sandbox')} className="p-2 bg-gray-200 rounded-lg hover:bg-gray-300">
+             <RefreshCw size={18} />
+           </button>
+        </div>
+      </header>
+
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-4">
+        
+        {/* --- Left Column: Visual Indicators --- */}
+        <div className="lg:col-span-3 space-y-4">
+          {/* Confidence Meter */}
+          <div className="bg-white p-4 rounded-xl shadow-sm border border-slate-200 text-center">
+             <h3 className="text-xs font-bold text-gray-500 mb-2 uppercase tracking-wider">投資家の信認</h3>
+             <div className="relative w-full h-4 bg-gray-200 rounded-full overflow-hidden">
+               <div 
+                 className={`h-full transition-all duration-500 ${economy.investorConfidence > 60 ? 'bg-green-500' : economy.investorConfidence > 30 ? 'bg-yellow-500' : 'bg-red-600'}`}
+                 style={{ width: `${economy.investorConfidence}%` }}
+               ></div>
+             </div>
+             <div className="mt-2 text-2xl font-bold">{Math.round(economy.investorConfidence)}<span className="text-sm text-gray-400">/100</span></div>
+             <p className="text-xs text-gray-500 mt-1">
+               {economy.investorConfidence > 80 ? "「この国は安泰だ！」" : economy.investorConfidence < 40 ? "「逃げろ！暴落するぞ！」" : "「様子見だな…」"}
+             </p>
+          </div>
+
+          {/* Water Tanks */}
+          <div className="bg-white p-4 rounded-xl shadow-sm border border-slate-200 grid grid-cols-2 gap-2">
+             <div>
+               <WaterTank level={economy.reserves} capacity={1000} label="外貨準備" />
+               <p className="text-[10px] text-gray-400 text-center mt-1">通貨防衛の弾薬</p>
+             </div>
+             <div>
+               <DebtTower usdDebt={economy.foreignDebtUSD} rate={economy.exchangeRate} />
+               <p className="text-[10px] text-gray-400 text-center mt-1">借金の壁</p>
+             </div>
+          </div>
+        </div>
+
+        {/* --- Center Column: Main Dashboard --- */}
+        <div className="lg:col-span-6 space-y-4">
+          
+          {/* Chart */}
+          <div className="bg-white p-4 rounded-xl shadow-sm border border-slate-200">
+             <div className="flex justify-between items-center mb-2">
+               <h3 className="text-sm font-bold text-gray-700 flex items-center gap-2">
+                 <Activity size={16} /> 為替レート推移 (自国通貨/ドル)
+               </h3>
+               <span className={`text-xs px-2 py-1 rounded ${economy.regime === 'peg' ? 'bg-blue-100 text-blue-800' : 'bg-purple-100 text-purple-800'}`}>
+                 現在: {economy.regime === 'peg' ? '固定相場 (Peg)' : '変動相場 (Float)'}
+               </span>
+             </div>
+             <Chart data={history} />
+             <div className="mt-2 text-xs text-gray-500 text-center">
+               グラフが上に行くほど通貨安（借金負担増）
+             </div>
+          </div>
+
+          {/* Event Log */}
+          <div className="bg-white p-4 rounded-xl shadow-sm border border-slate-200 min-h-[150px]">
+            <h3 className="text-xs font-bold text-gray-500 mb-2 uppercase tracking-wider">ニュースフィード</h3>
+            <div className="space-y-2 max-h-32 overflow-y-auto">
+              {messages.length === 0 && <p className="text-gray-400 text-sm italic">特筆すべき動きはありません...</p>}
+              {messages.map((msg) => (
+                <div key={msg.id} className={`text-sm p-2 rounded border-l-4 animate-in fade-in slide-in-from-right-2
+                  ${msg.type === 'danger' || msg.type === 'critical' ? 'border-red-500 bg-red-50 text-red-800' : 
+                    msg.type === 'warning' ? 'border-yellow-500 bg-yellow-50 text-yellow-800' : 'border-blue-400 bg-blue-50 text-gray-700'}`}>
+                  {msg.type === 'critical' && <AlertTriangle size={14} className="inline mr-1"/>}
+                  {msg.text}
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+
+        {/* --- Right Column: Controls --- */}
+        <div className="lg:col-span-3 space-y-4">
+          
+          {/* Policy Controls */}
+          <div className="bg-white p-4 rounded-xl shadow-sm border border-slate-200">
+            <h3 className="text-xs font-bold text-gray-500 mb-4 uppercase tracking-wider flex items-center gap-2">
+              <Settings size={14} /> 政策コントロール
+            </h3>
+            
+            {/* Interest Rate */}
+            <div className="mb-6">
+              <div className="flex justify-between text-sm mb-1">
+                <span>政策金利</span>
+                <span className="font-bold text-blue-600">{economy.interestRate.toFixed(1)}%</span>
+              </div>
+              <div className="flex gap-2">
+                <button 
+                  onClick={() => setEconomy(e => ({...e, interestRate: Math.max(0, e.interestRate - 0.5)}))}
+                  className="flex-1 py-1 bg-gray-100 hover:bg-gray-200 rounded text-gray-600 font-bold"
+                >-</button>
+                <button 
+                  onClick={() => setEconomy(e => ({...e, interestRate: e.interestRate + 0.5}))}
+                  className="flex-1 py-1 bg-blue-100 hover:bg-blue-200 rounded text-blue-600 font-bold"
+                >+</button>
+              </div>
+              <p className="text-[10px] text-gray-400 mt-1">
+                上げると通貨を守れるが、景気が冷える(未実装)
+              </p>
+            </div>
+
+            {/* Regime Switch */}
+            <div className="mb-6">
+              <div className="flex justify-between text-sm mb-1">
+                <span>為替制度</span>
+              </div>
+              <button 
+                onClick={toggleRegime}
+                className={`w-full py-2 rounded-lg text-sm font-bold transition-colors border-2 ${economy.regime === 'peg' ? 'border-blue-500 bg-blue-50 text-blue-700' : 'border-purple-500 bg-purple-50 text-purple-700'}`}
+              >
+                {economy.regime === 'peg' ? 'ドルペッグ（固定）' : '変動相場制'}
+              </button>
+              <p className="text-[10px] text-gray-400 mt-1">
+                {economy.regime === 'peg' ? '相場は安定するが、維持に外貨準備が必要。' : '外貨準備は減らないが、借金が膨らむリスク。'}
+              </p>
+            </div>
+
+            {/* Capital Controls */}
+            <div className="flex items-center justify-between">
+              <span className="text-sm">資本規制</span>
+              <button 
+                onClick={() => {
+                  setEconomy(e => ({...e, capitalControls: !e.capitalControls}));
+                  addMessage(economy.capitalControls ? "資本規制を解除しました。お金が自由に出入りします。" : "資本規制を導入しました。資金流出を防ぎます。", "info");
+                }}
+                className={`w-12 h-6 rounded-full transition-colors relative ${economy.capitalControls ? 'bg-green-500' : 'bg-gray-300'}`}
+              >
+                <div className={`absolute top-1 left-1 w-4 h-4 bg-white rounded-full transition-transform ${economy.capitalControls ? 'translate-x-6' : ''}`}></div>
+              </button>
+            </div>
+          </div>
+
+          {/* God Mode Shocks (Sandbox Only) */}
+          {mode !== 'story' && (
+             <div className="bg-slate-200 p-4 rounded-xl border border-slate-300 opacity-90">
+               <h3 className="text-xs font-bold text-gray-600 mb-2 uppercase tracking-wider">神の悪戯 (ショック)</h3>
+               <div className="grid grid-cols-2 gap-2">
+                 <button onClick={() => injectShock('global_hike')} className="p-2 bg-white hover:bg-red-50 rounded shadow-sm text-xs text-left">
+                   <span className="block text-lg">📈</span> 米国利上げ
+                 </button>
+                 <button onClick={() => injectShock('panic')} className="p-2 bg-white hover:bg-red-50 rounded shadow-sm text-xs text-left">
+                   <span className="block text-lg">😱</span> 投資家パニック
+                 </button>
+                 <button onClick={() => injectShock('oil')} className="p-2 bg-white hover:bg-red-50 rounded shadow-sm text-xs text-left">
+                   <span className="block text-lg">🛢️</span> 原油高騰
+                 </button>
+               </div>
+             </div>
+          )}
+        </div>
+      </div>
+
+      {/* --- Game Over Overlay --- */}
+      {gameOver && (
+        <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4">
+          <div className={`max-w-lg w-full p-8 rounded-2xl shadow-2xl border-4 text-center ${crisisType === 'win' ? 'bg-white border-green-500' : 'bg-red-900 border-red-500 text-white'}`}>
+            {crisisType === 'win' ? (
+              <>
+                 <div className="text-6xl mb-4">🎉</div>
+                 <h2 className="text-3xl font-bold mb-4 text-green-800">任期満了！</h2>
+                 <p className="text-gray-700 mb-6">
+                   あなたは数々のショックを乗り越え、国の経済を守り抜きました。<br/>
+                   歴史の教科書には「奇跡の舵取り」として記録されるでしょう。
+                 </p>
+              </>
+            ) : (
+              <>
+                <div className="text-6xl mb-4">💸</div>
+                <h2 className="text-3xl font-bold mb-4">通貨危機 発生！</h2>
+                <div className="text-left bg-black/20 p-4 rounded-lg mb-6">
+                  <p className="font-bold text-lg mb-2 border-b border-white/30 pb-2">
+                    {crisisType === 'reserves' ? '外貨準備の枯渇' : '債務不履行 (デフォルト)'}
+                  </p>
+                  <p className="text-sm opacity-90 leading-relaxed">
+                    {crisisType === 'reserves' 
+                      ? '固定相場を守ろうとして、虎の子の外貨準備（ドル）を全て使い果たしてしまいました。中央銀行は市場撤退を余儀なくされ、通貨価値は暴落しました。' 
+                      : '自国通貨が安くなりすぎたため、ドルで借りていた借金の返済額が（自国通貨換算で）膨れ上がり、返済不能に陥りました。'}
+                  </p>
+                </div>
+                <div className="bg-white/10 p-3 rounded text-sm mb-6">
+                  <strong>教訓:</strong><br/>
+                  {crisisType === 'reserves' 
+                    ? '「トリレンマ」を知っていますか？ 自由な資本移動がある中で、固定相場と独自の金融政策を両立させることは不可能です。'
+                    : '「原罪（Original Sin）」と呼ばれる現象です。新興国が自国通貨で借金できない場合、通貨安は即座に倒産につながります。'}
+                </div>
+              </>
+            )}
+            <button onClick={() => setMode('menu')} className="bg-white text-red-900 font-bold py-3 px-8 rounded-full hover:bg-gray-200 transition-colors">
+              メインメニューへ
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* --- Story Mode Overlay --- */}
+      {mode === 'story' && storyStep > 0 && !gameOver && (
+         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-40 p-4">
+           <div className="bg-white max-w-md w-full p-6 rounded-xl shadow-xl border-t-4 border-blue-600">
+             <div className="flex items-center gap-3 mb-4">
+                <div className="w-12 h-12 bg-gray-200 rounded-full flex items-center justify-center text-2xl">🏦</div>
+                <div>
+                  <h3 className="font-bold text-lg">総裁、ご決断を。</h3>
+                  <p className="text-xs text-gray-500">アドバイザーより</p>
+                </div>
+             </div>
+             
+             {storyStep === 1 && (
+               <>
+                 <p className="text-sm text-gray-700 mb-4">
+                   「好景気で海外から投資マネーが流入しています。しかし、今の固定相場ではバブルの懸念があります。どうしますか？」
+                 </p>
+                 <div className="space-y-2">
+                   <button onClick={() => {
+                     setEconomy(e => ({...e, interestRate: e.interestRate + 2.0}));
+                     addMessage("金利を引き上げ、景気を冷やしました。", "info");
+                     setIsPlaying(true);
+                     setStoryStep(0);
+                   }} className="w-full text-left p-3 border rounded hover:bg-blue-50 text-sm">
+                     1. 金利を上げて、過熱を抑える（安全策）
+                   </button>
+                   <button onClick={() => {
+                     setEconomy(e => ({...e, gdpGrowth: e.gdpGrowth + 2.0, reserves: e.reserves + 100}));
+                     addMessage("何もせず、投資ブームを謳歌します！外貨準備が増加。", "warning");
+                     setIsPlaying(true);
+                     setStoryStep(0);
+                   }} className="w-full text-left p-3 border rounded hover:bg-blue-50 text-sm">
+                     2. 何もしないで投資ブームを楽しむ（リスク増）
+                   </button>
+                 </div>
+               </>
+             )}
+
+            {storyStep === 2 && (
+               <>
+                 <p className="text-sm text-gray-700 mb-4">
+                   「緊急事態です！米国が利上げを示唆しており、投資家が資金を引き上げ始めています。外貨準備が減り始めました！」
+                 </p>
+                 <div className="space-y-2">
+                   <button onClick={() => {
+                     // Defend peg with massive hike
+                     setEconomy(e => ({...e, interestRate: e.interestRate + 5.0, gdpGrowth: -1.0}));
+                     addMessage("猛烈な利上げで通貨を防衛！しかし国内不況へ…", "warning");
+                     setIsPlaying(true);
+                     setStoryStep(0);
+                   }} className="w-full text-left p-3 border rounded hover:bg-blue-50 text-sm">
+                     1. 徹底抗戦：金利を大幅に上げて、通貨を守る
+                   </button>
+                   <button onClick={() => {
+                     // Soft float
+                     toggleRegime();
+                     addMessage("固定相場を放棄しました。レートは動きますが、外貨は守れます。", "info");
+                     setIsPlaying(true);
+                     setStoryStep(0);
+                   }} className="w-full text-left p-3 border rounded hover:bg-blue-50 text-sm">
+                     2. 撤退戦：変動相場へ移行する
+                   </button>
+                   <button onClick={() => {
+                     // Capital control
+                     setEconomy(e => ({...e, capitalControls: true}));
+                     addMessage("資本規制を発動！国際的な評判は落ちますが、流出は止まります。", "danger");
+                     setIsPlaying(true);
+                     setStoryStep(0);
+                   }} className="w-full text-left p-3 border rounded hover:bg-blue-50 text-sm">
+                     3. 禁じ手：資本移動を規制する
+                   </button>
+                 </div>
+               </>
+             )}
+           </div>
+         </div>
+      )}
+
+    </div>
+  );
+};
+
+export default CurrencyCrisisLab;
