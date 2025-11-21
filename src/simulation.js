@@ -5,20 +5,25 @@ const DEBT_RANGE = { min: 50, max: 700 };
 
 const clamp = (value, min, max) => Math.min(max, Math.max(min, value));
 
-const appendLog = (logs, message) => {
-  const nextLogs = [...logs, message];
+const appendLog = (logs, message, id) => {
+  const entry = { id, message };
+  const nextLogs = [...logs, entry];
   if (nextLogs.length > MAX_LOGS) {
     return nextLogs.slice(-MAX_LOGS);
   }
   return nextLogs;
 };
 
-const withStatus = (prev, updates, status) => ({
-  ...prev,
-  ...updates,
-  status,
-  logs: appendLog(prev.logs, status),
-});
+const withStatus = (prev, updates, status) => {
+  const nextLogId = prev.logCounter;
+  return {
+    ...prev,
+    ...updates,
+    status,
+    logCounter: nextLogId + 1,
+    logs: appendLog(prev.logs, status, nextLogId),
+  };
+};
 
 const createInitialState = () => ({
   time: 0,
@@ -31,7 +36,13 @@ const createInitialState = () => ({
   capitalControls: false,
   regime: 'peg',
   status: INITIAL_MESSAGE,
-  logs: [INITIAL_MESSAGE],
+  logs: [
+    {
+      id: 0,
+      message: INITIAL_MESSAGE,
+    },
+  ],
+  logCounter: 1,
   crisis: null,
 });
 
@@ -90,7 +101,8 @@ function simulateStep(state, rng = Math.random) {
   }
 
   next.status = status || '市場は慎重に推移しています。';
-  next.logs = appendLog(state.logs, next.status);
+  next.logs = appendLog(state.logs, next.status, state.logCounter);
+  next.logCounter = state.logCounter + 1;
   return next;
 }
 

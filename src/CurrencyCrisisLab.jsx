@@ -392,7 +392,13 @@ function CurrencyCrisisLabContent() {
           onClick={() =>
             setState((prev) => {
               const status = '市場は様子見しています。';
-              return { ...prev, status, logs: appendLog(prev.logs, status) };
+              const nextLogId = prev.logCounter;
+              return {
+                ...prev,
+                status,
+                logCounter: nextLogId + 1,
+                logs: appendLog(prev.logs, status, nextLogId),
+              };
             })
           }
           icon={RefreshCw}
@@ -410,7 +416,7 @@ function CurrencyCrisisLabContent() {
             .reverse()
             .map((log, index) => (
               <li
-                key={`${index}-${log.slice(0, 12)}`}
+                key={log.id}
                 className={`flex items-start gap-2 rounded-lg border px-3 py-2 text-sm leading-5 ${
                   index === 0
                     ? 'border-emerald-500/40 bg-emerald-500/10 text-emerald-50'
@@ -422,7 +428,7 @@ function CurrencyCrisisLabContent() {
                     index === 0 ? 'bg-emerald-400' : 'bg-slate-500'
                   }`}
                 />
-                <span className="flex-1">{log}</span>
+                <span className="flex-1">{log.message}</span>
               </li>
             ))}
         </ul>
