@@ -12,6 +12,9 @@ import {
   Waves,
 } from 'lucide-react';
 
+const INITIAL_MESSAGE = '準備完了。自動再生を押して、流れを追いかけてみてください。';
+const MAX_LOGS = 12;
+
 const createInitialState = () => ({
   time: 0,
   exchangeRate: 100,
@@ -22,11 +25,20 @@ const createInitialState = () => ({
   globalInterestRate: 4,
   capitalControls: false,
   regime: 'peg',
-  status: '準備完了。自動再生を押して、流れを追いかけてみてください。',
+  status: INITIAL_MESSAGE,
+  logs: [INITIAL_MESSAGE],
   crisis: null,
 });
 
 const clamp = (value, min, max) => Math.min(max, Math.max(min, value));
+
+const appendLog = (logs, message) => {
+  const nextLogs = [...logs, message];
+  if (nextLogs.length > MAX_LOGS) {
+    return nextLogs.slice(-MAX_LOGS);
+  }
+  return nextLogs;
+};
 
 const formatNumber = (value) => value.toLocaleString('ja-JP', { maximumFractionDigits: 1 });
 
@@ -85,6 +97,7 @@ function simulateStep(state) {
   }
 
   next.status = status || '市場は慎重に推移しています。';
+  next.logs = appendLog(state.logs, next.status);
   return next;
 }
 
@@ -148,51 +161,66 @@ function CurrencyCrisisLab() {
   }, [state.crisis, autoPlay]);
 
   const handleRateChange = (delta) => {
-    setState((prev) => ({
-      ...prev,
-      interestRate: clamp(prev.interestRate + delta, 0, 25),
-      status: delta > 0 ? '政策金利を引き上げました。' : '政策金利を引き下げました。',
-    }));
+    setState((prev) => {
+      const status = delta > 0 ? '政策金利を引き上げました。' : '政策金利を引き下げました。';
+      return {
+        ...prev,
+        interestRate: clamp(prev.interestRate + delta, 0, 25),
+        status,
+        logs: appendLog(prev.logs, status),
+      };
+    });
   };
 
   const handleShock = (type) => {
     setState((prev) => {
       const next = { ...prev };
+      let status = prev.status;
       if (type === 'global-rate') {
         next.globalInterestRate = clamp(next.globalInterestRate + 1.8, 0, 15);
-        next.status = '米国の利上げショック。安全資産への資金逃避が起きています。';
+        status = '米国の利上げショック。安全資産への資金逃避が起きています。';
       }
       if (type === 'panic') {
         next.investorConfidence = clamp(next.investorConfidence - 18, 0, 100);
-        next.status = 'ニュースで投資家心理が急落しました。';
+        status = 'ニュースで投資家心理が急落しました。';
       }
       if (type === 'oil') {
         next.reserves = clamp(next.reserves - 50, 0, 800);
-        next.status = '輸入コスト上昇で外貨準備が削られました。';
+        status = '輸入コスト上昇で外貨準備が削られました。';
       }
+      next.status = status;
+      next.logs = appendLog(prev.logs, status);
       return next;
     });
   };
 
   const toggleRegime = () => {
-    setState((prev) => ({
-      ...prev,
-      regime: prev.regime === 'peg' ? 'float' : 'peg',
-      status:
+    setState((prev) => {
+      const status =
         prev.regime === 'peg'
           ? '固定相場を終了し、変動相場へ移行しました。'
-          : '再びドルペッグへ戻しました。',
-    }));
+          : '再びドルペッグへ戻しました。';
+      return {
+        ...prev,
+        regime: prev.regime === 'peg' ? 'float' : 'peg',
+        status,
+        logs: appendLog(prev.logs, status),
+      };
+    });
   };
 
   const toggleControls = () => {
-    setState((prev) => ({
-      ...prev,
-      capitalControls: !prev.capitalControls,
-      status: !prev.capitalControls
+    setState((prev) => {
+      const status = !prev.capitalControls
         ? '資本規制を導入し、フローを絞りました。'
-        : '資本規制を解除しました。',
-    }));
+        : '資本規制を解除しました。';
+      return {
+        ...prev,
+        capitalControls: !prev.capitalControls,
+        status,
+        logs: appendLog(prev.logs, status),
+      };
+    });
   };
 
   const reset = () => {
@@ -335,15 +363,45 @@ function CurrencyCrisisLab() {
         />
         <ActionButton label="1ステップ進める" onClick={() => setState((prev) => simulateStep(prev))} icon={ArrowRight} />
         <ActionButton label="リセット" onClick={reset} icon={RotateCcw} tone="subtle" />
-        <ActionButton label="市場の様子を見る" onClick={() => setState((prev) => ({ ...prev, status: '市場は様子見しています。' }))} icon={RefreshCw} />
+        <ActionButton
+          label="市場の様子を見る"
+          onClick={() =>
+            setState((prev) => {
+              const status = '市場は様子見しています。';
+              return { ...prev, status, logs: appendLog(prev.logs, status) };
+            })
+          }
+          icon={RefreshCw}
+        />
       </div>
 
       <div className="mt-6 rounded-2xl border border-slate-800 bg-slate-900/60 p-4">
         <div className="flex items-center gap-2 text-sm font-semibold text-slate-200">
-          {state.crisis ? <AlertTriangle className="h-5 w-5 text-rose-400" /> : <Activity className="h-5 w-5 text-emerald-300" />}
+          {state.crisis ? <AlertTriangle className="h-5 w-5 text-rose-400" /> : <Activity className="h-5 w-5 text-emerald-300" />} 
           <span>{state.crisis ? '危機シグナル' : 'マーケットログ'}</span>
         </div>
-        <p className="mt-2 text-sm text-slate-300">{state.status}</p>
+        <ul className="mt-3 space-y-2">
+          {[...state.logs]
+            .slice()
+            .reverse()
+            .map((log, index) => (
+              <li
+                key={`${index}-${log.slice(0, 12)}`}
+                className={`flex items-start gap-2 rounded-lg border px-3 py-2 text-sm leading-5 ${
+                  index === 0
+                    ? 'border-emerald-500/40 bg-emerald-500/10 text-emerald-50'
+                    : 'border-slate-800 bg-slate-900/80 text-slate-200'
+                }`}
+              >
+                <span
+                  className={`mt-1 h-2 w-2 rounded-full ${
+                    index === 0 ? 'bg-emerald-400' : 'bg-slate-500'
+                  }`}
+                />
+                <span className="flex-1">{log}</span>
+              </li>
+            ))}
+        </ul>
         {state.crisis && (
           <div className="mt-3 flex items-center gap-2 rounded-lg bg-rose-900/40 px-3 py-2 text-sm text-rose-100">
             <AlertTriangle className="h-4 w-4" />
