@@ -35,4 +35,29 @@ describe('simulateStep', () => {
     assert.equal(crisisNext.status, '投資家の信認が急落し、通貨危機が迫っています。');
     assert.ok(crisisNext.investorConfidence < 10);
   });
+
+  it('clears crises once buffers heal and restores the preferred regime', () => {
+    const crisisState = {
+      ...createInitialState(),
+      regime: 'float',
+      preferredRegime: 'peg',
+      crisis: '外貨準備枯渇',
+      reserves: 210,
+      investorConfidence: 65,
+      exchangeRate: 165,
+      logCounter: 3,
+      logs: [
+        { id: 0, message: 'initial' },
+        { id: 1, message: 'crisis hit' },
+      ],
+    };
+
+    const recovered = simulateStep(crisisState, createRng(5));
+
+    assert.equal(recovered.crisis, null);
+    assert.equal(recovered.regime, 'peg');
+    assert.ok(recovered.exchangeRate <= 140);
+    assert.equal(recovered.logs.at(-1).message, recovered.status);
+    assert.equal(recovered.logs.at(-1).id, crisisState.logCounter);
+  });
 });
