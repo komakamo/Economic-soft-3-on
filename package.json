@@ -3,7 +3,6 @@
   "version": "0.0.1",
   "private": true,
   "type": "module",
-  "homepage": "https://<username>.github.io/Economic-soft-3-on",
   "scripts": {
     "dev": "vite",
     "build": "vite build",
