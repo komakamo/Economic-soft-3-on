@@ -35,6 +35,7 @@ const createInitialState = () => ({
   globalInterestRate: 4,
   capitalControls: false,
   regime: 'peg',
+  preferredRegime: 'peg',
   status: INITIAL_MESSAGE,
   logs: [
     {
@@ -48,6 +49,8 @@ const createInitialState = () => ({
 
 function simulateStep(state, rng = Math.random) {
   const next = { ...state };
+  const hadCrisis = Boolean(state.crisis);
+  next.preferredRegime = state.preferredRegime || state.regime || 'peg';
   next.time += 1;
 
   let pressure = 0;
@@ -98,6 +101,26 @@ function simulateStep(state, rng = Math.random) {
   if (next.investorConfidence < 12 && !next.crisis) {
     next.crisis = '信認危機';
     status = '投資家の信認が急落し、通貨危機が迫っています。';
+  }
+
+  const reservesRecovered = next.reserves >= 180;
+  const confidenceRecovered = next.investorConfidence >= 45;
+
+  if (next.crisis && hadCrisis && (reservesRecovered || confidenceRecovered)) {
+    const recoveredRegime = next.preferredRegime || next.regime;
+    next.crisis = null;
+
+    if (next.regime !== recoveredRegime) {
+      next.regime = recoveredRegime;
+    }
+
+    if (next.regime === 'peg') {
+      next.exchangeRate = clamp(next.exchangeRate * 0.6 + 100 * 0.4, 60, 140);
+      status = '外貨準備と信認が回復し、ペッグを再開できました。';
+    } else {
+      next.exchangeRate = clamp(next.exchangeRate * 0.9, 40, 400);
+      status = '市場心理が改善し、変動相場でも安定を取り戻しました。';
+    }
   }
 
   next.status = status || '市場は慎重に推移しています。';

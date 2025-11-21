@@ -133,7 +133,10 @@ function CurrencyCrisisLabContent() {
           : '再びドルペッグへ戻しました。';
       return withStatus(
         prev,
-        { regime: prev.regime === 'peg' ? 'float' : 'peg' },
+        {
+          regime: prev.regime === 'peg' ? 'float' : 'peg',
+          preferredRegime: prev.regime === 'peg' ? 'float' : 'peg',
+        },
         status,
       );
     });
