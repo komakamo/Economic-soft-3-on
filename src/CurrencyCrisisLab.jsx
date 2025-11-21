@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useMemo, useState } from 'react';
+import { createContext, useContext, useEffect, useId, useMemo, useState } from 'react';
 import {
   Activity,
   AlertTriangle,
@@ -70,6 +70,10 @@ function CurrencyCrisisLabContent() {
   const [state, setState] = useState(() => createInitialState());
   const [autoPlay, setAutoPlay] = useState(false);
   const rng = useContext(RandomContext);
+  const reservesInputId = useId();
+  const reservesHelperId = useId();
+  const debtInputId = useId();
+  const debtHelperId = useId();
 
   useEffect(() => {
     if (!autoPlay) return undefined;
@@ -287,13 +291,14 @@ function CurrencyCrisisLabContent() {
           <p className="text-sm font-semibold text-slate-200">外貨準備と外貨建て債務</p>
 
           <div className="space-y-2 rounded-xl bg-slate-900/80 p-3">
-            <div className="flex items-center justify-between text-xs text-slate-400">
+            <label htmlFor={reservesInputId} className="flex items-center justify-between text-xs text-slate-400">
               <span>外貨準備</span>
               <span>
                 {formatNumber(state.reserves)} 億$ / {RESERVES_RANGE.max} max
               </span>
-            </div>
+            </label>
             <input
+              id={reservesInputId}
               type="range"
               min={RESERVES_RANGE.min}
               max={RESERVES_RANGE.max}
@@ -301,7 +306,11 @@ function CurrencyCrisisLabContent() {
               value={state.reserves}
               onChange={(e) => adjustReserves(Number(e.target.value))}
               className="w-full accent-emerald-400"
+              aria-describedby={reservesHelperId}
             />
+            <p id={reservesHelperId} className="sr-only">
+              外貨準備のスライダー。{RESERVES_RANGE.min} から {RESERVES_RANGE.max} 億ドルの範囲で調整できます。
+            </p>
             <div className="grid grid-cols-3 gap-2 text-xs font-semibold text-slate-100">
               <ActionButton
                 label="-25 億$"
@@ -323,13 +332,14 @@ function CurrencyCrisisLabContent() {
           </div>
 
           <div className="space-y-2 rounded-xl bg-slate-900/80 p-3">
-            <div className="flex items-center justify-between text-xs text-slate-400">
+            <label htmlFor={debtInputId} className="flex items-center justify-between text-xs text-slate-400">
               <span>外貨建て債務</span>
               <span>
                 {formatNumber(state.foreignDebtUSD)} 億$ / {DEBT_RANGE.max} max
               </span>
-            </div>
+            </label>
             <input
+              id={debtInputId}
               type="range"
               min={DEBT_RANGE.min}
               max={DEBT_RANGE.max}
@@ -337,7 +347,11 @@ function CurrencyCrisisLabContent() {
               value={state.foreignDebtUSD}
               onChange={(e) => adjustForeignDebt(Number(e.target.value))}
               className="w-full accent-amber-400"
+              aria-describedby={debtHelperId}
             />
+            <p id={debtHelperId} className="sr-only">
+              外貨建て債務のスライダー。{DEBT_RANGE.min} から {DEBT_RANGE.max} 億ドルの範囲で調整できます。
+            </p>
             <div className="grid grid-cols-3 gap-2 text-xs font-semibold text-slate-100">
               <ActionButton
                 label="-20 億$"
