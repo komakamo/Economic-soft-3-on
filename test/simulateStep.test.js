@@ -36,6 +36,22 @@ describe('simulateStep', () => {
     assert.ok(crisisNext.investorConfidence < 10);
   });
 
+  it('exits a peg with depleted reserves and logs the crisis details', () => {
+    const lowReservesState = { ...createInitialState(), reserves: 55 };
+    const rng = createRng(9);
+
+    const crisisStep = simulateStep(lowReservesState, rng);
+
+    assert.equal(crisisStep.crisis, '外貨準備枯渇');
+    assert.equal(crisisStep.regime, 'float');
+    assert.equal(crisisStep.status, '外貨準備が尽きかけたため、変動相場へ移行しました。');
+    assert.ok(Math.abs(crisisStep.exchangeRate - 93.8026408737154) < 1e-9);
+    assert.equal(crisisStep.logCounter, lowReservesState.logCounter + 1);
+    assert.equal(crisisStep.logs.length, lowReservesState.logs.length + 1);
+    assert.equal(crisisStep.logs.at(-1).id, lowReservesState.logCounter);
+    assert.equal(crisisStep.logs.at(-1).message, crisisStep.status);
+  });
+
   it('clears crises once buffers heal and restores the preferred regime', () => {
     const crisisState = {
       ...createInitialState(),
