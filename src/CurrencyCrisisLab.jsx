@@ -14,6 +14,8 @@ import {
 
 const INITIAL_MESSAGE = '準備完了。自動再生を押して、流れを追いかけてみてください。';
 const MAX_LOGS = 12;
+const RESERVES_RANGE = { min: 0, max: 800 };
+const DEBT_RANGE = { min: 50, max: 700 };
 
 const createInitialState = () => ({
   time: 0,
@@ -39,6 +41,13 @@ const appendLog = (logs, message) => {
   }
   return nextLogs;
 };
+
+const withStatus = (prev, updates, status) => ({
+  ...prev,
+  ...updates,
+  status,
+  logs: appendLog(prev.logs, status),
+});
 
 const formatNumber = (value) => value.toLocaleString('ja-JP', { maximumFractionDigits: 1 });
 
@@ -72,7 +81,7 @@ function simulateStep(state) {
 
   if (next.regime === 'peg') {
     const defenseCost = Math.max(0, pressure * 2.2);
-    next.reserves = clamp(next.reserves - defenseCost * 0.65, 0, 800);
+    next.reserves = clamp(next.reserves - defenseCost * 0.65, RESERVES_RANGE.min, RESERVES_RANGE.max);
 
     const pegDrift = 100 + clamp(pressure * 0.9, -12, 18);
     next.exchangeRate = pegDrift + (Math.random() * 2 - 1);
@@ -163,12 +172,7 @@ function CurrencyCrisisLab() {
   const handleRateChange = (delta) => {
     setState((prev) => {
       const status = delta > 0 ? '政策金利を引き上げました。' : '政策金利を引き下げました。';
-      return {
-        ...prev,
-        interestRate: clamp(prev.interestRate + delta, 0, 25),
-        status,
-        logs: appendLog(prev.logs, status),
-      };
+      return withStatus(prev, { interestRate: clamp(prev.interestRate + delta, 0, 25) }, status);
     });
   };
 
@@ -185,12 +189,10 @@ function CurrencyCrisisLab() {
         status = 'ニュースで投資家心理が急落しました。';
       }
       if (type === 'oil') {
-        next.reserves = clamp(next.reserves - 50, 0, 800);
+        next.reserves = clamp(next.reserves - 50, RESERVES_RANGE.min, RESERVES_RANGE.max);
         status = '輸入コスト上昇で外貨準備が削られました。';
       }
-      next.status = status;
-      next.logs = appendLog(prev.logs, status);
-      return next;
+      return withStatus(prev, next, status);
     });
   };
 
@@ -200,12 +202,11 @@ function CurrencyCrisisLab() {
         prev.regime === 'peg'
           ? '固定相場を終了し、変動相場へ移行しました。'
           : '再びドルペッグへ戻しました。';
-      return {
-        ...prev,
-        regime: prev.regime === 'peg' ? 'float' : 'peg',
+      return withStatus(
+        prev,
+        { regime: prev.regime === 'peg' ? 'float' : 'peg' },
         status,
-        logs: appendLog(prev.logs, status),
-      };
+      );
     });
   };
 
@@ -214,12 +215,25 @@ function CurrencyCrisisLab() {
       const status = !prev.capitalControls
         ? '資本規制を導入し、フローを絞りました。'
         : '資本規制を解除しました。';
-      return {
-        ...prev,
-        capitalControls: !prev.capitalControls,
-        status,
-        logs: appendLog(prev.logs, status),
-      };
+      return withStatus(prev, { capitalControls: !prev.capitalControls }, status);
+    });
+  };
+
+  const adjustReserves = (value, reason) => {
+    setState((prev) => {
+      const clamped = clamp(value, RESERVES_RANGE.min, RESERVES_RANGE.max);
+      const direction = clamped >= prev.reserves ? '積み増しました' : '取り崩しました';
+      const status = reason || `外貨準備を${direction}（${formatNumber(clamped)} 億$）。`;
+      return withStatus(prev, { reserves: clamped }, status);
+    });
+  };
+
+  const adjustForeignDebt = (value, reason) => {
+    setState((prev) => {
+      const clamped = clamp(value, DEBT_RANGE.min, DEBT_RANGE.max);
+      const direction = clamped >= prev.foreignDebtUSD ? '積み上がっています' : '圧縮しました';
+      const status = reason || `外貨建て債務が${direction}（${formatNumber(clamped)} 億$）。`;
+      return withStatus(prev, { foreignDebtUSD: clamped }, status);
     });
   };
 
@@ -310,7 +324,7 @@ function CurrencyCrisisLab() {
         />
       </div>
 
-      <div className="mt-6 grid gap-4 md:grid-cols-2">
+      <div className="mt-6 grid gap-4 md:grid-cols-2 lg:grid-cols-3">
         <div className="space-y-3 rounded-2xl border border-slate-800 bg-slate-900/70 p-4">
           <div className="flex items-center justify-between">
             <p className="text-sm font-semibold text-slate-200">政策金利</p>
@@ -350,6 +364,82 @@ function CurrencyCrisisLab() {
           <div className="flex flex-wrap gap-2 text-xs text-slate-400">
             <span className="rounded-full bg-slate-800 px-3 py-1">peg: 準備を使ってレートを守る</span>
             <span className="rounded-full bg-slate-800 px-3 py-1">float: 圧力をレート変動で吸収</span>
+          </div>
+        </div>
+
+        <div className="space-y-4 rounded-2xl border border-slate-800 bg-slate-900/70 p-4">
+          <p className="text-sm font-semibold text-slate-200">外貨準備と外貨建て債務</p>
+
+          <div className="space-y-2 rounded-xl bg-slate-900/80 p-3">
+            <div className="flex items-center justify-between text-xs text-slate-400">
+              <span>外貨準備</span>
+              <span>
+                {formatNumber(state.reserves)} 億$ / {RESERVES_RANGE.max} max
+              </span>
+            </div>
+            <input
+              type="range"
+              min={RESERVES_RANGE.min}
+              max={RESERVES_RANGE.max}
+              step={10}
+              value={state.reserves}
+              onChange={(e) => adjustReserves(Number(e.target.value))}
+              className="w-full accent-emerald-400"
+            />
+            <div className="grid grid-cols-3 gap-2 text-xs font-semibold text-slate-100">
+              <ActionButton
+                label="-25 億$"
+                onClick={() => adjustReserves(state.reserves - 25)}
+                tone="subtle"
+              />
+              <ActionButton
+                label="+25 億$"
+                onClick={() => adjustReserves(state.reserves + 25)}
+                tone="primary"
+              />
+              <ActionButton
+                label="備蓄を積む"
+                onClick={() => adjustReserves(state.reserves + 60, '外貨準備を積み増しました。')}
+                icon={Shield}
+                tone="subtle"
+              />
+            </div>
+          </div>
+
+          <div className="space-y-2 rounded-xl bg-slate-900/80 p-3">
+            <div className="flex items-center justify-between text-xs text-slate-400">
+              <span>外貨建て債務</span>
+              <span>
+                {formatNumber(state.foreignDebtUSD)} 億$ / {DEBT_RANGE.max} max
+              </span>
+            </div>
+            <input
+              type="range"
+              min={DEBT_RANGE.min}
+              max={DEBT_RANGE.max}
+              step={10}
+              value={state.foreignDebtUSD}
+              onChange={(e) => adjustForeignDebt(Number(e.target.value))}
+              className="w-full accent-amber-400"
+            />
+            <div className="grid grid-cols-3 gap-2 text-xs font-semibold text-slate-100">
+              <ActionButton
+                label="-20 億$"
+                onClick={() => adjustForeignDebt(state.foreignDebtUSD - 20)}
+                tone="subtle"
+              />
+              <ActionButton
+                label="+20 億$"
+                onClick={() => adjustForeignDebt(state.foreignDebtUSD + 20)}
+                tone="danger"
+              />
+              <ActionButton
+                label="借換を進める"
+                onClick={() => adjustForeignDebt(state.foreignDebtUSD - 35, '借換で外貨債務を圧縮しました。')}
+                icon={RefreshCw}
+                tone="subtle"
+              />
+            </div>
           </div>
         </div>
       </div>
