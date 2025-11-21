@@ -46,6 +46,13 @@ function StatCard({ title, value, helper, icon: Icon, tone = 'default' }) {
   );
 }
 
+/**
+ * @param {Object} props
+ * @param {string} props.label
+ * @param {import('react').ComponentType | undefined} props.icon
+ * @param {() => void} props.onClick
+ * @param {'default' | 'primary' | 'danger' | 'subtle'} [props.tone]
+ */
 function ActionButton({ label, icon: Icon, onClick, tone = 'default' }) {
   const tones = {
     default: 'bg-slate-800 hover:bg-slate-700 text-slate-100 border border-slate-700',
@@ -58,7 +65,9 @@ function ActionButton({ label, icon: Icon, onClick, tone = 'default' }) {
     <button
       type="button"
       onClick={onClick}
-      className={`flex flex-1 items-center justify-center gap-2 rounded-lg px-3 py-2 text-sm font-semibold transition ${tones[tone]}`}
+      className={`flex flex-1 items-center justify-center gap-2 rounded-lg px-3 py-2 text-sm font-semibold transition ${
+        tones[tone] || tones.default
+      }`}
     >
       {Icon && <Icon className="h-4 w-4" />}
       <span>{label}</span>
