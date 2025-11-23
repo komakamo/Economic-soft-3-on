@@ -166,11 +166,17 @@ function CurrencyCrisisLabContent() {
     });
   };
 
+  const createReservesStatus = (nextReserves, previousReserves, reason) => {
+    if (reason) return reason;
+
+    const direction = nextReserves >= previousReserves ? '積み増しました' : '取り崩しました';
+    return `外貨準備を${direction}（${formatNumber(nextReserves)} 億$）。`;
+  };
+
   const adjustReserves = (value, reason) => {
     setState((prev) => {
       const clamped = clamp(value, RESERVES_RANGE.min, RESERVES_RANGE.max);
-      const direction = clamped >= prev.reserves ? '積み増しました' : '取り崩しました';
-      const status = reason || `外貨準備を${direction}（${formatNumber(clamped)} 億$）。`;
+      const status = createReservesStatus(clamped, prev.reserves, reason);
       return withStatus(prev, { reserves: clamped }, status);
     });
   };
