@@ -106,7 +106,7 @@ function simulateStep(state, rng = Math.random) {
   const reservesRecovered = next.reserves >= 180;
   const confidenceRecovered = next.investorConfidence >= 45;
 
-  if (next.crisis && hadCrisis && (reservesRecovered || confidenceRecovered)) {
+  if (next.crisis && hadCrisis && (reservesRecovered && confidenceRecovered)) {
     const recoveredRegime = next.preferredRegime || next.regime;
     next.crisis = null;
 
