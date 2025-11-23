@@ -107,20 +107,35 @@ function CurrencyCrisisLabContent() {
 
   const handleShock = (type) => {
     setState((prev) => {
-      const next = { ...prev };
-      let status = prev.status;
-      if (type === 'global-rate') {
-        next.globalInterestRate = clamp(next.globalInterestRate + 1.8, 0, 15);
-        status = '米国の利上げショック。安全資産への資金逃避が起きています。';
+      let status = '';
+      let next = prev;
+
+      switch (type) {
+        case 'global-rate':
+          next = {
+            ...prev,
+            globalInterestRate: clamp(prev.globalInterestRate + 1.8, 0, 15),
+          };
+          status = '米国の利上げショック。安全資産への資金逃避が起きています。';
+          break;
+        case 'panic':
+          next = {
+            ...prev,
+            investorConfidence: clamp(prev.investorConfidence - 18, 0, 100),
+          };
+          status = 'ニュースで投資家心理が急落しました。';
+          break;
+        case 'oil':
+          next = {
+            ...prev,
+            reserves: clamp(prev.reserves - 50, RESERVES_RANGE.min, RESERVES_RANGE.max),
+          };
+          status = '輸入コスト上昇で外貨準備が削られました。';
+          break;
+        default:
+          return prev;
       }
-      if (type === 'panic') {
-        next.investorConfidence = clamp(next.investorConfidence - 18, 0, 100);
-        status = 'ニュースで投資家心理が急落しました。';
-      }
-      if (type === 'oil') {
-        next.reserves = clamp(next.reserves - 50, RESERVES_RANGE.min, RESERVES_RANGE.max);
-        status = '輸入コスト上昇で外貨準備が削られました。';
-      }
+
       return withStatus(prev, next, status);
     });
   };
